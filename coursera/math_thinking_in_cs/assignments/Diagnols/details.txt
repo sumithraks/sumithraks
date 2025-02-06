@@ -1,0 +1,1 @@
+Consider a 5X5 chessboard. Draw diagnols in each square so that they dont touch each. (For 3X3 - 6, 4X4 - 10 and 5x5 16 diagnols)
