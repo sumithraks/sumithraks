@@ -1,0 +1,6 @@
+- This is a sample app that uses chatgpt to categorize the transactions into specific categories.
+- This is an initial version.
+- TODO:
+- Clean up the prompts - define strings
+- Constant for GPT version
+- Clean up the TODOs in the script
