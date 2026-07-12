@@ -89,6 +89,33 @@ cd backend
 - `backend/.env` (gitignored): `DATABASE_URL`, `CELERY_BROKER_URL`, `EMAIL_BACKEND`, `VAPID_*`, `CORS_ALLOWED_ORIGINS`, `FRONTEND_BASE_URL`. Email defaults to the console backend, so verification/reset/notification emails print to the `runserver` terminal instead of sending for real.
 - `frontend/.env.local` (gitignored): `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
 
+## Resetting the database schema
+
+Full reset (drops all data, regenerates migrations) — dev only:
+
+```bash
+docker compose down -v          # drops the Postgres volume
+docker compose up -d
+cd backend
+find apps -path "*/migrations/*.py" -not -name "__init__.py" -delete
+.venv/bin/python manage.py makemigrations
+.venv/bin/python manage.py migrate
+```
+
+Reset a single app's schema without touching the others:
+
+```bash
+cd backend
+.venv/bin/python manage.py migrate <app_name> zero   # unapply that app's migrations
+.venv/bin/python manage.py migrate <app_name>         # re-apply
+```
+
+Squash an app's migration history into one file instead of deleting it:
+
+```bash
+.venv/bin/python manage.py squashmigrations <app_name> <last_migration_number>
+```
+
 ## Notes
 
 - Payments are ledger-only (no live payment gateway) — staff mark charges as paid via the admin billing console after collecting cash/card in person.
