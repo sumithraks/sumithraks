@@ -26,7 +26,8 @@ class MyMembershipView(generics.RetrieveAPIView):
 
     def get_object(self):
         membership = (
-            Membership.objects.filter(user=self.request.user)
+            Membership.objects.select_related("tier")
+            .filter(user=self.request.user)
             .order_by("-created_at")
             .first()
         )
@@ -58,7 +59,7 @@ class MembershipViewSet(
     serializer_class = MembershipSerializer
 
     def get_queryset(self):
-        qs = Membership.objects.all().order_by("-created_at")
+        qs = Membership.objects.select_related("tier").order_by("-created_at")
         if self.request.user.is_staff:
             return qs
         return qs.filter(user=self.request.user)

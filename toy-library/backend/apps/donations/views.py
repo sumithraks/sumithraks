@@ -21,7 +21,9 @@ class DonationViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    queryset = Donation.objects.all().order_by("-donated_at")
+    queryset = (
+        Donation.objects.select_related("donor").prefetch_related("items").order_by("-donated_at")
+    )
     serializer_class = DonationSerializer
 
     def get_permissions(self):
