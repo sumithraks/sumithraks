@@ -1,15 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { CheckoutRecord, Paginated } from "@/lib/types";
 
-export default function AdminCheckoutsPage() {
+function AdminCheckoutsInner() {
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [form, setForm] = useState({ toy: "", member: "" });
   const [returning, setReturning] = useState<Record<string, { condition: string }>>({});
+
+  useEffect(() => {
+    const toyId = searchParams.get("toy");
+    if (toyId) setForm((f) => ({ ...f, toy: toyId }));
+  }, [searchParams]);
 
   const { data } = useQuery({
     queryKey: ["admin-checkouts"],
@@ -125,5 +132,13 @@ export default function AdminCheckoutsPage() {
         </table>
       </div>
     </div>
+  );
+}
+
+export default function AdminCheckoutsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading…</div>}>
+      <AdminCheckoutsInner />
+    </Suspense>
   );
 }

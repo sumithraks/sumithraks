@@ -1,3 +1,4 @@
+from django.db.models import Count, Min, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, permissions, viewsets
 from rest_framework.decorators import action
@@ -6,6 +7,7 @@ from rest_framework.response import Response
 from apps.common.permissions import IsStaffOrReadOnly
 
 from . import services
+from .filters import ToyFilter
 from .models import Toy, ToyStatusLog
 from .serializers import ToySerializer, ToyStatusLogSerializer, ToyTransitionSerializer
 
@@ -15,8 +17,25 @@ class ToyViewSet(viewsets.ModelViewSet):
     queryset = Toy.objects.all()
     permission_classes = [IsStaffOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["status", "make", "condition", "source"]
+    filterset_class = ToyFilter
     search_fields = ["model_name", "make", "description", "barcode_or_sku"]
+
+    @action(detail=False, methods=["get"])
+    def groups(self, request):
+        qs = self.filter_queryset(self.get_queryset())
+        groups = (
+            qs.values("make", "model_name")
+            .annotate(
+                total_count=Count("id"),
+                available_count=Count("id", filter=Q(status=Toy.Status.AVAILABLE)),
+                # Assumes all toys sharing a (make, model_name) share the same min_age_years;
+                # not enforced at the model level, so a divergent value is silently picked as
+                # the minimum rather than surfaced as an inconsistency.
+                min_age_years=Min("min_age_years"),
+            )
+            .order_by("make", "model_name")
+        )
+        return Response(list(groups))
 
     @action(detail=True, methods=["post"])
     def transition(self, request, pk=None):

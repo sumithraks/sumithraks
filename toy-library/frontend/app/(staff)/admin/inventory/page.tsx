@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import type { Paginated, Toy } from "@/lib/types";
+import type { Paginated, Toy, ToyGroup } from "@/lib/types";
 
 const STATUSES = [
   "INTAKE",
@@ -16,19 +17,122 @@ const STATUSES = [
   "RETIRED",
 ];
 
+const CHECKOUT_ELIGIBLE_STATUSES = new Set(["AVAILABLE", "RESERVED"]);
+
+function groupsInvalidateKeys(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["admin-toy-groups"] });
+  queryClient.invalidateQueries({ queryKey: ["admin-toy-group-detail"] });
+}
+
+function GroupRows({
+  make,
+  model_name,
+  onTransition,
+}: {
+  make: string;
+  model_name: string;
+  onTransition: (toyId: string, newStatus: string) => Promise<void>;
+}) {
+  const [page, setPage] = useState<number | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ["admin-toy-group-detail", make, model_name, page],
+    queryFn: () => {
+      const params = new URLSearchParams({ make, model_name });
+      if (page) params.set("page", String(page));
+      return apiFetch<Paginated<Toy>>(`/toys/?${params.toString()}`);
+    },
+  });
+
+  // make/model_name filters are icontains on the backend, so defensively drop any
+  // substring-collision rows (e.g. group "Blocks" vs. a toy named "Wooden Blocks Deluxe").
+  const rows = data?.results.filter((t) => t.make === make && t.model_name === model_name) ?? [];
+
+  const pageFromUrl = (url: string | null) => {
+    if (!url) return null;
+    return Number(new URL(url).searchParams.get("page")) || 1;
+  };
+
+  return (
+    <>
+      {rows.map((toy) => (
+        <tr key={toy.id} className="border-t bg-gray-50 text-xs">
+          <td className="p-2 pl-8 font-mono" title={toy.id}>
+            {toy.id.slice(0, 8)}…
+          </td>
+          <td className="p-2">{toy.status}</td>
+          <td className="p-2">{toy.condition}</td>
+          <td className="p-2">
+            {CHECKOUT_ELIGIBLE_STATUSES.has(toy.status) && (
+              <Link
+                href={`/admin/checkouts?toy=${toy.id}`}
+                className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
+              >
+                Check out
+              </Link>
+            )}
+          </td>
+          <td className="p-2">
+            <select
+              value=""
+              onChange={(e) => e.target.value && onTransition(toy.id, e.target.value)}
+              className="rounded border px-2 py-1 text-xs"
+            >
+              <option value="">Transition…</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </td>
+        </tr>
+      ))}
+      {(data?.previous || data?.next) && (
+        <tr className="border-t bg-gray-50 text-xs">
+          <td colSpan={5} className="p-2 pl-8">
+            <button
+              disabled={!data?.previous}
+              onClick={() => setPage(pageFromUrl(data?.previous ?? null))}
+              className="mr-2 rounded border px-2 py-1 disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <button
+              disabled={!data?.next}
+              onClick={() => setPage(pageFromUrl(data?.next ?? null))}
+              className="rounded border px-2 py-1 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 export default function AdminInventoryPage() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState("");
+  const [filters, setFilters] = useState({ model_name: "", make: "", age: "", status: "" });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ model_name: "", make: "", min_age_years: "", description: "" });
 
-  const { data } = useQuery({
-    queryKey: ["admin-toys", statusFilter],
-    queryFn: () => apiFetch<Paginated<Toy>>(`/toys/?${statusFilter ? `status=${statusFilter}` : ""}`),
+  const { data: groups } = useQuery({
+    queryKey: ["admin-toy-groups", filters],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filters.model_name) params.set("model_name", filters.model_name);
+      if (filters.make) params.set("make", filters.make);
+      if (filters.age) params.set("age", filters.age);
+      if (filters.status) params.set("status", filters.status);
+      return apiFetch<ToyGroup[]>(`/toys/groups/?${params.toString()}`);
+    },
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-toys"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-toy-groups"] });
 
   const createToy = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +157,7 @@ export default function AdminInventoryPage() {
         method: "POST",
         body: { new_status: newStatus, reason: `Manually set to ${newStatus}` },
       });
-      invalidate();
+      groupsInvalidateKeys(queryClient);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Transition not allowed");
     }
@@ -111,53 +215,79 @@ export default function AdminInventoryPage() {
         </form>
       )}
 
-      <select
-        value={statusFilter}
-        onChange={(e) => setStatusFilter(e.target.value)}
-        className="rounded border px-3 py-2 text-sm"
-      >
-        <option value="">All statuses</option>
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
+      <div className="flex flex-wrap gap-2">
+        <input
+          placeholder="Model…"
+          value={filters.model_name}
+          onChange={(e) => setFilters({ ...filters, model_name: e.target.value })}
+          className="w-40 rounded border px-3 py-2 text-sm"
+        />
+        <input
+          placeholder="Make…"
+          value={filters.make}
+          onChange={(e) => setFilters({ ...filters, make: e.target.value })}
+          className="w-40 rounded border px-3 py-2 text-sm"
+        />
+        <input
+          placeholder="Age"
+          type="number"
+          min={0}
+          value={filters.age}
+          onChange={(e) => setFilters({ ...filters, age: e.target.value })}
+          className="w-24 rounded border px-3 py-2 text-sm"
+        />
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          className="rounded border px-3 py-2 text-sm"
+        >
+          <option value="">All statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="overflow-x-auto rounded-lg border bg-white">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-gray-500">
             <tr>
-              <th className="p-2">Model</th>
-              <th className="p-2">Make</th>
-              <th className="p-2">Status</th>
-              <th className="p-2">Condition</th>
-              <th className="p-2">Set status</th>
+              <th className="p-2">Model / Make</th>
+              <th className="p-2">Available / Total</th>
+              <th className="p-2">Min age</th>
+              <th className="p-2" />
+              <th className="p-2" />
             </tr>
           </thead>
           <tbody>
-            {data?.results.map((toy) => (
-              <tr key={toy.id} className="border-t">
-                <td className="p-2">{toy.model_name}</td>
-                <td className="p-2">{toy.make}</td>
-                <td className="p-2">{toy.status}</td>
-                <td className="p-2">{toy.condition}</td>
-                <td className="p-2">
-                  <select
-                    value=""
-                    onChange={(e) => e.target.value && transition(toy.id, e.target.value)}
-                    className="rounded border px-2 py-1 text-xs"
+            {groups?.map((g) => {
+              const key = `${g.make}::${g.model_name}`;
+              const isOpen = !!expanded[key];
+              return (
+                <Fragment key={key}>
+                  <tr
+                    className="cursor-pointer border-t hover:bg-gray-50"
+                    onClick={() => setExpanded((e) => ({ ...e, [key]: !e[key] }))}
                   >
-                    <option value="">Transition…</option>
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
-            ))}
+                    <td className="p-2">
+                      {isOpen ? "▾" : "▸"} {g.model_name}{" "}
+                      <span className="text-gray-500">— {g.make}</span>
+                    </td>
+                    <td className="p-2">
+                      {g.available_count} / {g.total_count}
+                    </td>
+                    <td className="p-2">{g.min_age_years != null ? `${g.min_age_years}+` : "—"}</td>
+                    <td className="p-2" />
+                    <td className="p-2" />
+                  </tr>
+                  {isOpen && (
+                    <GroupRows make={g.make} model_name={g.model_name} onTransition={transition} />
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

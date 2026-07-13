@@ -18,24 +18,45 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function BrowsePage() {
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ model_name: "", make: "", age: "" });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["toys", search],
-    queryFn: () =>
-      apiFetch<Paginated<Toy>>(`/toys/?${search ? `search=${encodeURIComponent(search)}` : ""}`),
+    queryKey: ["toys", filters],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filters.model_name) params.set("model_name", filters.model_name);
+      if (filters.make) params.set("make", filters.make);
+      if (filters.age) params.set("age", filters.age);
+      return apiFetch<Paginated<Toy>>(`/toys/?${params.toString()}`);
+    },
   });
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Browse toys</h1>
-        <input
-          placeholder="Search toys…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-64 rounded border px-3 py-2 text-sm"
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            placeholder="Model…"
+            value={filters.model_name}
+            onChange={(e) => setFilters({ ...filters, model_name: e.target.value })}
+            className="w-40 rounded border px-3 py-2 text-sm"
+          />
+          <input
+            placeholder="Make…"
+            value={filters.make}
+            onChange={(e) => setFilters({ ...filters, make: e.target.value })}
+            className="w-40 rounded border px-3 py-2 text-sm"
+          />
+          <input
+            placeholder="Age"
+            type="number"
+            min={0}
+            value={filters.age}
+            onChange={(e) => setFilters({ ...filters, age: e.target.value })}
+            className="w-24 rounded border px-3 py-2 text-sm"
+          />
+        </div>
       </div>
 
       {isLoading && <p className="text-gray-500">Loading…</p>}
@@ -61,7 +82,7 @@ export default function BrowsePage() {
         ))}
       </div>
       {data && data.results.length === 0 && (
-        <p className="text-gray-500">No toys match your search.</p>
+        <p className="text-gray-500">No toys match your filters.</p>
       )}
     </div>
   );

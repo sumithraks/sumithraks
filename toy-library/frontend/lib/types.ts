@@ -55,6 +55,14 @@ export type Toy = {
   barcode_or_sku: string | null;
 };
 
+export type ToyGroup = {
+  make: string;
+  model_name: string;
+  total_count: number;
+  available_count: number;
+  min_age_years: number | null;
+};
+
 export type CheckoutRecord = {
   id: string;
   toy: string;
