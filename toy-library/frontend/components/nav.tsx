@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
@@ -36,7 +37,14 @@ export function Nav() {
     <header className="border-b bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
-          <Link href="/dashboard" className="font-semibold text-blue-600">
+          <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-blue-600">
+            <Image
+              src="/icons/favicon-192x192.png"
+              alt="Toy Library"
+              width={28}
+              height={28}
+              className="rounded"
+            />
             Toy Library
           </Link>
           <nav className="hidden gap-4 text-sm md:flex">
@@ -64,7 +72,9 @@ export function Nav() {
           </nav>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="text-gray-500">{user.email}</span>
+          <Link href="/settings" className="text-gray-500 hover:text-blue-600 hover:underline">
+            {user.email}
+          </Link>
           <button
             onClick={() => {
               logout();
