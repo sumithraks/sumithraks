@@ -6,6 +6,8 @@ export type User = {
   phone_number: string;
   is_email_verified: boolean;
   is_staff: boolean;
+  role: "MEMBER" | "STAFF" | "ADMIN";
+  is_active: boolean;
   date_joined: string;
 };
 
@@ -22,14 +24,31 @@ export type MembershipTier = {
   is_active: boolean;
 };
 
+export type MembershipSignOff = {
+  id: string;
+  membership: string;
+  status: "REQUESTED" | "APPROVED" | "REJECTED" | "REFUNDED";
+  requested_at: string;
+  requested_by: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  rejection_reason: string;
+  processed_at: string | null;
+  processed_by: string | null;
+  deposit_amount_due: string;
+  deposit_amount_returned: string | null;
+  deduction_reason: string;
+};
+
 export type Membership = {
   id: string;
   user: string;
   tier: MembershipTier;
-  status: "PENDING_PAYMENT" | "ACTIVE" | "DISCONTINUED";
+  status: "PENDING_PAYMENT" | "ACTIVE" | "PENDING_TERMINATION" | "DISCONTINUED";
   joined_at: string | null;
   renewed_through: string | null;
   discontinued_at: string | null;
+  sign_off: MembershipSignOff | null;
 };
 
 export type Toy = {

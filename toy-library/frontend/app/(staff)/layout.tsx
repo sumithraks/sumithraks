@@ -9,14 +9,16 @@ export default function StaffLayout({ children }: { children: React.ReactNode })
   const { user, loading } = useAuth();
   const router = useRouter();
 
+  const isStaffOrAdmin = user?.role === "STAFF" || user?.role === "ADMIN";
+
   useEffect(() => {
     if (loading) return;
     if (!user) router.replace("/login");
-    else if (!user.is_staff) router.replace("/dashboard");
-  }, [loading, user, router]);
+    else if (!isStaffOrAdmin) router.replace("/dashboard");
+  }, [loading, user, isStaffOrAdmin, router]);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading…</div>;
-  if (!user || !user.is_staff) return null;
+  if (!user || !isStaffOrAdmin) return null;
 
   return (
     <div className="flex min-h-screen flex-col">

@@ -1,18 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError, setToken } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 
-export default function LoginPage() {
+function LoginInner() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
   const { refresh } = useAuth();
+  const resetSuccess = searchParams.get("reset") === "success";
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +45,11 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
         <h1 className="mb-6 text-xl font-semibold text-blue-600">Toy Library — Log in</h1>
+        {resetSuccess && (
+          <p className="mb-4 rounded bg-green-50 p-2 text-sm text-green-700">
+            Your password has been reset. Log in with your new password.
+          </p>
+        )}
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Email</label>
@@ -65,6 +72,11 @@ export default function LoginPage() {
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
+          <p className="text-right text-sm">
+            <Link href="/forgot-password" className="text-blue-600 hover:underline">
+              Forgot password?
+            </Link>
+          </p>
           <button
             type="submit"
             disabled={submitting}
@@ -81,5 +93,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }

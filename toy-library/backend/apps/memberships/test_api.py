@@ -118,17 +118,35 @@ class TestActivate:
 
 @pytest.mark.django_db
 class TestChangeTier:
-    def test_member_can_change_own_tier(self, member_client, active_membership):
+    def test_staff_can_change_member_tier(self, staff_client, active_membership):
+        MembershipTierFactory(code="DIAMOND", deposit_amount=Decimal("80.00"))
+
+        res = staff_client.post(
+            f"/api/memberships/{active_membership.id}/change-tier/", {"new_tier_code": "DIAMOND"}
+        )
+
+        assert res.status_code == 200
+
+    def test_admin_can_change_member_tier(self, admin_client, active_membership):
+        MembershipTierFactory(code="DIAMOND", deposit_amount=Decimal("80.00"))
+
+        res = admin_client.post(
+            f"/api/memberships/{active_membership.id}/change-tier/", {"new_tier_code": "DIAMOND"}
+        )
+
+        assert res.status_code == 200
+
+    def test_member_cannot_change_own_tier(self, member_client, active_membership):
         MembershipTierFactory(code="DIAMOND", deposit_amount=Decimal("80.00"))
 
         res = member_client.post(
             f"/api/memberships/{active_membership.id}/change-tier/", {"new_tier_code": "DIAMOND"}
         )
 
-        assert res.status_code == 200
+        assert res.status_code == 403
 
-    def test_change_tier_rejects_same_tier(self, member_client, active_membership):
-        res = member_client.post(
+    def test_change_tier_rejects_same_tier(self, staff_client, active_membership):
+        res = staff_client.post(
             f"/api/memberships/{active_membership.id}/change-tier/",
             {"new_tier_code": active_membership.tier.code},
         )
@@ -136,31 +154,72 @@ class TestChangeTier:
 
 
 @pytest.mark.django_db
-class TestSignoff:
-    def test_staff_can_sign_off_membership_in_good_standing(self, staff_client, active_membership):
-        res = staff_client.post(
-            f"/api/memberships/{active_membership.id}/signoff/",
-            {"amount_returned": "50.00", "reason": ""},
-        )
+class TestMembershipTermination:
+    def test_staff_can_request_termination(self, staff_client, active_membership):
+        res = staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
 
-        assert res.status_code == 200
+        assert res.status_code == 201
+        assert res.data["status"] == "REQUESTED"
         active_membership.refresh_from_db()
-        assert active_membership.status == "DISCONTINUED"
+        assert active_membership.status == "PENDING_TERMINATION"
 
-    def test_signoff_blocked_while_toy_checked_out(self, staff_client, active_membership):
+    def test_request_termination_blocked_while_toy_checked_out(self, staff_client, active_membership):
         toy = ToyFactory()
         checkout_services.create_checkout(toy, active_membership.user, active_membership.user)
 
-        res = staff_client.post(
-            f"/api/memberships/{active_membership.id}/signoff/",
-            {"amount_returned": "50.00", "reason": ""},
-        )
+        res = staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
 
         assert res.status_code == 400
 
-    def test_member_cannot_sign_off(self, member_client, active_membership):
-        res = member_client.post(
-            f"/api/memberships/{active_membership.id}/signoff/",
-            {"amount_returned": "50.00", "reason": ""},
-        )
+    def test_member_cannot_request_termination(self, member_client, active_membership):
+        res = member_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
         assert res.status_code == 403
+
+    def test_staff_cannot_approve_termination(self, staff_client, active_membership):
+        staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
+
+        res = staff_client.post(
+            f"/api/memberships/{active_membership.id}/approve-termination/", {"approve": True}
+        )
+
+        assert res.status_code == 403
+
+    def test_admin_can_approve_then_staff_refunds(self, staff_client, admin_client, active_membership):
+        staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
+
+        approve_res = admin_client.post(
+            f"/api/memberships/{active_membership.id}/approve-termination/", {"approve": True}
+        )
+        assert approve_res.status_code == 200
+        assert approve_res.data["status"] == "APPROVED"
+
+        refund_res = staff_client.post(
+            f"/api/memberships/{active_membership.id}/refund-deposit/",
+            {"amount_returned": "50.00", "notes": ""},
+        )
+        assert refund_res.status_code == 200
+        assert refund_res.data["status"] == "REFUNDED"
+        active_membership.refresh_from_db()
+        assert active_membership.status == "DISCONTINUED"
+
+    def test_refund_before_approval_fails(self, staff_client, active_membership):
+        staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
+
+        res = staff_client.post(
+            f"/api/memberships/{active_membership.id}/refund-deposit/",
+            {"amount_returned": "50.00", "notes": ""},
+        )
+        assert res.status_code == 400
+
+    def test_admin_can_reject_termination(self, staff_client, admin_client, active_membership):
+        staff_client.post(f"/api/memberships/{active_membership.id}/request-termination/")
+
+        res = admin_client.post(
+            f"/api/memberships/{active_membership.id}/approve-termination/",
+            {"approve": False, "reason": "Needs manager review"},
+        )
+
+        assert res.status_code == 200
+        assert res.data["status"] == "REJECTED"
+        active_membership.refresh_from_db()
+        assert active_membership.status == "ACTIVE"

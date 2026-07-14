@@ -29,6 +29,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_email_verified", True)
+        extra_fields.setdefault("role", User.Role.ADMIN)
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True")
         if extra_fields.get("is_superuser") is not True:
@@ -37,11 +38,17 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
+    class Role(models.TextChoices):
+        MEMBER = "MEMBER", "Member"
+        STAFF = "STAFF", "Staff"
+        ADMIN = "ADMIN", "Admin"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     phone_number = models.CharField(max_length=32, blank=True)
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.MEMBER)
 
     is_email_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

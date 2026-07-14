@@ -59,9 +59,9 @@ class TestSubmitDonation:
 
 @pytest.mark.django_db
 class TestDonationListing:
-    def test_list_requires_staff(self, member_client):
-        res = member_client.get("/api/donations/")
-        assert res.status_code == 403
+    def test_list_requires_authentication(self, api_client):
+        res = api_client.get("/api/donations/")
+        assert res.status_code == 401
 
     def test_staff_can_list_donations(self, staff_client, api_client):
         api_client.post(
@@ -74,6 +74,24 @@ class TestDonationListing:
 
         assert res.status_code == 200
         assert len(res.data["results"]) == 1
+
+    def test_member_only_sees_own_donations(self, member_client, member, staff_client):
+        member_client.post(
+            "/api/donations/",
+            {"donor": {"name": "Own Donation"}, "items": [{"item_type": "PUZZLE", "description": "x"}]},
+            format="json",
+        )
+        staff_client.post(
+            "/api/donations/",
+            {"donor": {"name": "Someone Else"}, "items": [{"item_type": "PUZZLE", "description": "y"}]},
+            format="json",
+        )
+
+        res = member_client.get("/api/donations/")
+
+        assert res.status_code == 200
+        assert len(res.data["results"]) == 1
+        assert res.data["results"][0]["donor"]["name"] == "Own Donation"
 
 
 @pytest.mark.django_db

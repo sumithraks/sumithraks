@@ -1,6 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
+from apps.accounts.models import User
 from apps.common.factories import MembershipFactory, MembershipTierFactory, ToyFactory, UserFactory
 
 
@@ -16,7 +17,12 @@ def member():
 
 @pytest.fixture
 def staff_user():
-    return UserFactory(is_staff=True)
+    return UserFactory(is_staff=True, role=User.Role.STAFF)
+
+
+@pytest.fixture
+def admin_user():
+    return UserFactory(is_staff=True, role=User.Role.ADMIN)
 
 
 @pytest.fixture
@@ -30,6 +36,13 @@ def member_client(member):
 def staff_client(staff_user):
     client = APIClient()
     client.force_authenticate(user=staff_user)
+    return client
+
+
+@pytest.fixture
+def admin_client(admin_user):
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
     return client
 
 

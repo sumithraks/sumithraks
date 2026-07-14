@@ -130,21 +130,96 @@ def confirm_tier_change_charge(ledger_entry):
 
 
 @transaction.atomic
-def process_signoff(membership, staff_user, amount_returned, reason=""):
+def request_termination(membership, staff_user):
     from apps.checkouts.models import CheckoutRecord
+
+    if membership.status != Membership.Status.ACTIVE:
+        raise ValueError("Only ACTIVE memberships can have termination requested")
 
     if CheckoutRecord.objects.filter(
         member=membership.user, status__in=[CheckoutRecord.Status.ACTIVE, CheckoutRecord.Status.OVERDUE]
     ).exists():
-        raise ValueError("Member has active or overdue checkouts; return all toys before sign-off")
+        raise ValueError("Member has active or overdue checkouts; return all toys before termination")
 
     if has_outstanding_charges(membership.user):
-        raise ValueError("Member has outstanding unpaid charges; settle balance before sign-off")
+        raise ValueError("Member has outstanding unpaid charges; settle balance before termination")
 
-    deposit_due = membership.deposit_ledger_entry.amount if membership.deposit_ledger_entry else membership.tier.deposit_amount
+    deposit_due = (
+        membership.deposit_ledger_entry.amount if membership.deposit_ledger_entry else membership.tier.deposit_amount
+    )
 
-    if amount_returned < deposit_due and not reason:
-        raise ValueError("deduction_reason is required when returning less than the full deposit")
+    # membership.status == ACTIVE here, so any existing sign_off row can only be
+    # REJECTED (approve/refund would have left the membership non-ACTIVE) -- reuse it.
+    existing = getattr(membership, "sign_off", None)
+    if existing is not None:
+        sign_off = existing
+        sign_off.status = MembershipSignOff.Status.REQUESTED
+        sign_off.requested_at = timezone.now()
+        sign_off.requested_by = staff_user
+        sign_off.approved_at = None
+        sign_off.approved_by = None
+        sign_off.rejection_reason = ""
+        sign_off.deposit_amount_due = deposit_due
+        sign_off.save(
+            update_fields=[
+                "status",
+                "requested_at",
+                "requested_by",
+                "approved_at",
+                "approved_by",
+                "rejection_reason",
+                "deposit_amount_due",
+                "updated_at",
+            ]
+        )
+    else:
+        sign_off = MembershipSignOff.objects.create(
+            membership=membership,
+            requested_by=staff_user,
+            deposit_amount_due=deposit_due,
+        )
+
+    membership.status = Membership.Status.PENDING_TERMINATION
+    membership.save(update_fields=["status", "updated_at"])
+    return sign_off
+
+
+@transaction.atomic
+def approve_termination(sign_off, admin_user):
+    if sign_off.status != MembershipSignOff.Status.REQUESTED:
+        raise ValueError("Only REQUESTED termination requests can be approved")
+    sign_off.status = MembershipSignOff.Status.APPROVED
+    sign_off.approved_at = timezone.now()
+    sign_off.approved_by = admin_user
+    sign_off.save(update_fields=["status", "approved_at", "approved_by", "updated_at"])
+    return sign_off
+
+
+@transaction.atomic
+def reject_termination(sign_off, admin_user, reason=""):
+    if sign_off.status != MembershipSignOff.Status.REQUESTED:
+        raise ValueError("Only REQUESTED termination requests can be rejected")
+    sign_off.status = MembershipSignOff.Status.REJECTED
+    sign_off.approved_at = timezone.now()
+    sign_off.approved_by = admin_user
+    sign_off.rejection_reason = reason
+    sign_off.save(update_fields=["status", "approved_at", "approved_by", "rejection_reason", "updated_at"])
+
+    membership = sign_off.membership
+    membership.status = Membership.Status.ACTIVE
+    membership.save(update_fields=["status", "updated_at"])
+    return sign_off
+
+
+@transaction.atomic
+def refund_deposit(sign_off, staff_user, amount_returned, notes=""):
+    if sign_off.status != MembershipSignOff.Status.APPROVED:
+        raise ValueError("Only APPROVED termination requests can be refunded")
+
+    if amount_returned < sign_off.deposit_amount_due and not notes:
+        raise ValueError("notes is required when returning less than the full deposit")
+
+    membership = sign_off.membership
 
     refund_entry = create_ledger_entry(
         user=membership.user,
@@ -153,17 +228,25 @@ def process_signoff(membership, staff_user, amount_returned, reason=""):
         direction=LedgerEntry.Direction.CREDIT,
         status=LedgerEntry.Status.PAID,
         related_membership=membership,
-        notes=reason,
+        notes=notes,
     )
 
-    sign_off = MembershipSignOff.objects.create(
-        membership=membership,
-        processed_at=timezone.now(),
-        processed_by=staff_user,
-        deposit_amount_due=deposit_due,
-        deposit_amount_returned=amount_returned,
-        deduction_reason=reason,
-        refund_ledger_entry=refund_entry,
+    sign_off.status = MembershipSignOff.Status.REFUNDED
+    sign_off.processed_at = timezone.now()
+    sign_off.processed_by = staff_user
+    sign_off.deposit_amount_returned = amount_returned
+    sign_off.deduction_reason = notes
+    sign_off.refund_ledger_entry = refund_entry
+    sign_off.save(
+        update_fields=[
+            "status",
+            "processed_at",
+            "processed_by",
+            "deposit_amount_returned",
+            "deduction_reason",
+            "refund_ledger_entry",
+            "updated_at",
+        ]
     )
 
     membership.status = Membership.Status.DISCONTINUED

@@ -1,6 +1,7 @@
 import pytest
 from django.core import mail
 from django_otp.oath import totp
+from rest_framework.test import APIClient
 
 from apps.common.factories import UserFactory
 
@@ -218,6 +219,42 @@ class TestMe:
 
 
 @pytest.mark.django_db
+class TestChangePassword:
+    def test_requires_authentication(self, api_client):
+        res = api_client.post(
+            "/api/auth/password-change/",
+            {"current_password": "testpass123", "new_password": "newpass456"},
+        )
+        assert res.status_code == 401
+
+    def test_wrong_current_password_fails(self, member_client):
+        res = member_client.post(
+            "/api/auth/password-change/",
+            {"current_password": "wrongpass", "new_password": "newpass456"},
+        )
+        assert res.status_code == 400
+
+    def test_new_password_too_short_fails(self, member_client):
+        res = member_client.post(
+            "/api/auth/password-change/",
+            {"current_password": "testpass123", "new_password": "short"},
+        )
+        assert res.status_code == 400
+
+    def test_correct_current_password_changes_password(self, member_client, member):
+        res = member_client.post(
+            "/api/auth/password-change/",
+            {"current_password": "testpass123", "new_password": "newpass456"},
+        )
+
+        assert res.status_code == 200
+        login_res = APIClient().post(
+            "/api/auth/login/", {"email": member.email, "password": "newpass456"}
+        )
+        assert login_res.status_code == 200
+
+
+@pytest.mark.django_db
 class TestPasswordReset:
     def test_request_for_existing_user_sends_email(self, api_client, member):
         res = api_client.post("/api/auth/password-reset/request/", {"email": member.email})
@@ -256,4 +293,45 @@ class TestPasswordReset:
             {"token": "00000000-0000-0000-0000-000000000000", "password": "whatever123"},
         )
 
+        assert res.status_code == 400
+
+
+@pytest.mark.django_db
+class TestAdminUserManagement:
+    def test_requires_admin_to_list(self, member_client, staff_client, admin_client):
+        assert member_client.get("/api/auth/staff/").status_code == 403
+        assert staff_client.get("/api/auth/staff/").status_code == 403
+        assert admin_client.get("/api/auth/staff/").status_code == 200
+
+    def test_admin_creates_staff_user(self, admin_client):
+        res = admin_client.post(
+            "/api/auth/staff/",
+            {"email": "brandnew@example.com", "first_name": "Brand", "last_name": "New"},
+        )
+
+        assert res.status_code == 201
+        assert res.data["role"] == "STAFF"
+        assert len(mail.outbox) == 1
+
+    def test_staff_cannot_create_staff_user(self, staff_client):
+        res = staff_client.post("/api/auth/staff/", {"email": "nope@example.com"})
+        assert res.status_code == 403
+
+    def test_admin_deactivates_and_reactivates_staff(self, admin_client, staff_user):
+        deactivate_res = admin_client.post(f"/api/auth/staff/{staff_user.id}/deactivate/")
+        assert deactivate_res.status_code == 200
+        assert deactivate_res.data["is_active"] is False
+
+        reactivate_res = admin_client.post(f"/api/auth/staff/{staff_user.id}/reactivate/")
+        assert reactivate_res.status_code == 200
+        assert reactivate_res.data["is_active"] is True
+
+    def test_admin_promotes_staff_to_admin(self, admin_client, staff_user):
+        res = admin_client.post(f"/api/auth/staff/{staff_user.id}/set-role/", {"role": "ADMIN"})
+
+        assert res.status_code == 200
+        assert res.data["role"] == "ADMIN"
+
+    def test_admin_cannot_change_own_role(self, admin_client, admin_user):
+        res = admin_client.post(f"/api/auth/staff/{admin_user.id}/set-role/", {"role": "STAFF"})
         assert res.status_code == 400

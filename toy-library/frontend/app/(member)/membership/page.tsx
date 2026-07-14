@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { LedgerEntry, Membership, MembershipTier, Paginated } from "@/lib/types";
 
 export default function MembershipPage() {
-  const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -38,22 +37,6 @@ export default function MembershipPage() {
       refetchMembership();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign up");
-    }
-  };
-
-  const changeTier = async (tierCode: string) => {
-    reset();
-    if (!membership) return;
-    try {
-      await apiFetch(`/memberships/${membership.id}/change-tier/`, {
-        method: "POST",
-        body: { new_tier_code: tierCode },
-      });
-      setMessage("Tier change requested. Any deposit adjustment will show in your billing history.");
-      refetchMembership();
-      queryClient.invalidateQueries({ queryKey: ["my-ledger"] });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not change tier");
     }
   };
 
@@ -92,14 +75,6 @@ export default function MembershipPage() {
                 className="mt-3 w-full rounded bg-blue-600 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
               >
                 Join
-              </button>
-            )}
-            {membership && membership.status === "ACTIVE" && membership.tier.code !== tier.code && (
-              <button
-                onClick={() => changeTier(tier.code)}
-                className="mt-3 w-full rounded border py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Switch to {tier.name}
               </button>
             )}
           </div>

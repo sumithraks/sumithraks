@@ -4,17 +4,22 @@ import io
 import qrcode
 from django.contrib.auth import authenticate
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.authtoken.models import Token
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.permissions import IsAdmin
 from apps.notifications.services import notify
 
 from . import services
 from .models import PreAuthToken, SingleUseToken, User
 from .serializers import (
+    ChangePasswordSerializer,
+    CreateStaffSerializer,
     LoginSerializer,
+    SetRoleSerializer,
     SignupSerializer,
     TwoFactorConfirmSerializer,
     TwoFactorVerifySerializer,
@@ -133,6 +138,21 @@ class MeView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
+class ChangePasswordView(APIView):
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            services.change_password(
+                request.user,
+                serializer.validated_data["current_password"],
+                serializer.validated_data["new_password"],
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_200_OK)
+
+
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -176,3 +196,44 @@ class PasswordResetConfirmView(APIView):
         token.used_at = timezone.now()
         token.save(update_fields=["used_at"])
         return Response(status=status.HTTP_200_OK)
+
+
+class AdminUserViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAdmin]
+    serializer_class = UserSerializer
+    queryset = User.objects.filter(role__in=[User.Role.STAFF, User.Role.ADMIN]).order_by("-date_joined")
+
+    def create(self, request, *args, **kwargs):
+        serializer = CreateStaffSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = services.create_staff_user(**serializer.validated_data)
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        target_user = self.get_object()
+        try:
+            services.deactivate_staff_user(target_user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(UserSerializer(target_user).data)
+
+    @action(detail=True, methods=["post"])
+    def reactivate(self, request, pk=None):
+        target_user = self.get_object()
+        try:
+            services.reactivate_staff_user(target_user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(UserSerializer(target_user).data)
+
+    @action(detail=True, methods=["post"], url_path="set-role")
+    def set_role(self, request, pk=None):
+        target_user = self.get_object()
+        serializer = SetRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            services.set_staff_role(target_user, serializer.validated_data["role"], request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(UserSerializer(target_user).data)

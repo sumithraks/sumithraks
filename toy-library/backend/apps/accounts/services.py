@@ -6,6 +6,8 @@ from django.db import transaction
 from django.utils import timezone
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from apps.notifications.services import notify
+
 from .models import PreAuthToken, SingleUseToken, TwoFactorRecoveryCode, User
 
 
@@ -94,6 +96,70 @@ def verify_totp_or_recovery_code(user, code):
         recovery.save(update_fields=["used_at"])
         return True
     return False
+
+
+def change_password(user, current_password, new_password):
+    if not user.check_password(current_password):
+        raise ValueError("Current password is incorrect")
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+
+
+def create_staff_user(email, first_name="", last_name=""):
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            role=User.Role.STAFF,
+            is_staff=True,
+            is_email_verified=True,
+        )
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+        token = SingleUseToken.objects.create(
+            user=user,
+            purpose=SingleUseToken.Purpose.PASSWORD_RESET,
+            expires_at=timezone.now() + timezone.timedelta(hours=2),
+        )
+
+    notify(
+        user,
+        event_type="PASSWORD_RESET",
+        title="Set your Toy Library staff password",
+        body="An admin has created a staff account for you. Use the link to set your password.",
+        action_url=f"/password-reset/confirm?token={token.token}",
+    )
+    return user
+
+
+def set_staff_role(target_user, new_role, actor):
+    if new_role not in (User.Role.STAFF, User.Role.ADMIN):
+        raise ValueError("role must be STAFF or ADMIN")
+    if target_user.role not in (User.Role.STAFF, User.Role.ADMIN):
+        raise ValueError("Only STAFF or ADMIN accounts can have their role changed")
+    if target_user.pk == actor.pk:
+        raise ValueError("You cannot change your own role")
+    target_user.role = new_role
+    target_user.is_staff = True
+    target_user.save(update_fields=["role", "is_staff"])
+    return target_user
+
+
+def deactivate_staff_user(target_user):
+    if target_user.role not in (User.Role.STAFF, User.Role.ADMIN):
+        raise ValueError("Only STAFF or ADMIN accounts can be deactivated here")
+    target_user.is_active = False
+    target_user.save(update_fields=["is_active"])
+    return target_user
+
+
+def reactivate_staff_user(target_user):
+    if target_user.role not in (User.Role.STAFF, User.Role.ADMIN):
+        raise ValueError("Only STAFF or ADMIN accounts can be reactivated here")
+    target_user.is_active = True
+    target_user.save(update_fields=["is_active"])
+    return target_user
 
 
 def generate_recovery_codes(user, count=10):

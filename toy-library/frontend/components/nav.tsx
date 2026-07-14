@@ -24,6 +24,8 @@ const staffLinks = [
   { href: "/admin/members", label: "Members" },
 ];
 
+const adminOnlyLinks = [{ href: "/admin/staff", label: "Staff" }];
+
 export function Nav() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
@@ -31,7 +33,12 @@ export function Nav() {
 
   if (!user) return null;
 
-  const links = pathname.startsWith("/admin") ? staffLinks : memberLinks;
+  const isStaffOrAdmin = user.role === "STAFF" || user.role === "ADMIN";
+  const links = pathname.startsWith("/admin")
+    ? user.role === "ADMIN"
+      ? [...staffLinks, ...adminOnlyLinks]
+      : staffLinks
+    : memberLinks;
 
   return (
     <header className="border-b bg-white">
@@ -59,7 +66,7 @@ export function Nav() {
                 {link.label}
               </Link>
             ))}
-            {user.is_staff && (
+            {isStaffOrAdmin && (
               <Link
                 href="/admin/inventory"
                 className={`hover:text-blue-600 ${

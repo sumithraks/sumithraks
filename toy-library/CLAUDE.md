@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Permission
+
+You have permission to read this repository. Do not keep asking for it.
+
 ## Project
 
 Toy Library: membership, inventory, checkout, donation, and notification management for a
@@ -10,6 +14,11 @@ background jobs; frontend is a Next.js (App Router) PWA. See [`ARCHITECTURE.md`]
 for the full system design, data model, state machines, and API surface — read it before making
 non-trivial backend changes, since most business rules live there rather than being obvious from
 the code layout.
+
+# Repository Guidelines
+DO NOT use shell commands like `grep`, `cat`, or `find`.
+Use built-in tools (like Glob for file search and the LSP for code intelligence).
+When looking for definitions, use "Go to Definition" instead of text searching.
 
 ## Commands
 
@@ -132,3 +141,16 @@ Every new Django feature must have corresponding test coverage targeting the fol
 ## Testing Anti-Patterns (Strictly Forbidden)
 * Never use hard-coded live timestamps; use `django.utils.timezone.now` combined with `freezegun`.
 * Do not use JSON fixture files for application tests. Use **FactoryBoy** to prevent brittle tests.
+
+# Architecture & Patterns
+- Follow Django's strict MVT (Model-View-Template) pattern.
+- Use Class-Based Views (CBVs) for complex logic and reusable components.
+- Use Function-Based Views (FBVs) only for simple, straightforward endpoints.
+- Leverage the Django ORM natively. Avoid raw SQL unless explicitly instructed for specific performance reasons.
+- Use `select_related()` and `prefetch_related()` when querying foreign keys or many-to-many fields to prevent $N+1$ query issues.
+
+# Do NOT Do This
+- Do NOT use `import *` in Python files.
+- Do NOT hardcode secrets. Always refer to `django.conf.settings` or environment variables.
+- Do NOT put complex business logic in views. Extract logic into services or model methods to keep views "skinny."
+- Do NOT write raw queries if a built-in ORM method (`filter`, `annotate`, `aggregate`) exists.

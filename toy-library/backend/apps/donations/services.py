@@ -6,8 +6,8 @@ from .models import Donation, DonationItem, DonationReceipt, Donor
 
 
 @transaction.atomic
-def submit_donation(donor_data, items_data):
-    donor = Donor.objects.create(**donor_data)
+def submit_donation(donor_data, items_data, user=None):
+    donor = Donor.objects.create(user=user, **donor_data)
     donation = Donation.objects.create(donor=donor)
     for item_data in items_data:
         item = DonationItem(donation=donation, **item_data)

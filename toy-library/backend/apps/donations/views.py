@@ -26,18 +26,25 @@ class DonationViewSet(
     )
     serializer_class = DonationSerializer
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.user.is_staff:
+            return qs
+        return qs.filter(donor__user=self.request.user)
+
     def get_permissions(self):
         if self.action == "create":
             return [permissions.AllowAny()]
-        if self.action in ("accept", "reject", "complete_item_intake", "list"):
+        if self.action in ("accept", "reject", "complete_item_intake"):
             return [IsStaff()]
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
         serializer = DonationSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        submitting_user = request.user if request.user.is_authenticated else None
         donation = services.submit_donation(
-            serializer.validated_data["donor"], serializer.validated_data["items"]
+            serializer.validated_data["donor"], serializer.validated_data["items"], user=submitting_user
         )
         return Response(DonationSerializer(donation).data, status=201)
 
