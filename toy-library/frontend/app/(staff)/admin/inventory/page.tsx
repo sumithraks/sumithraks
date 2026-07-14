@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import type { Paginated, Toy, ToyGroup } from "@/lib/types";
+import type { CheckoutRecord, Paginated, Toy, ToyGroup } from "@/lib/types";
 
 const STATUSES = [
   "INTAKE",
@@ -18,6 +18,7 @@ const STATUSES = [
 ];
 
 const CHECKOUT_ELIGIBLE_STATUSES = new Set(["AVAILABLE", "RESERVED"]);
+const RETURN_ELIGIBLE_STATUSES = new Set(["CHECKED_OUT", "OVERDUE"]);
 
 function groupsInvalidateKeys(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["admin-toy-groups"] });
@@ -28,12 +29,15 @@ function GroupRows({
   make,
   model_name,
   onTransition,
+  onReturn,
 }: {
   make: string;
   model_name: string;
   onTransition: (toyId: string, newStatus: string) => Promise<void>;
+  onReturn: (toy: Toy, condition: string) => Promise<void>;
 }) {
   const [page, setPage] = useState<number | null>(null);
+  const [returning, setReturning] = useState<Record<string, { condition: string }>>({});
 
   const { data } = useQuery({
     queryKey: ["admin-toy-group-detail", make, model_name, page],
@@ -63,13 +67,39 @@ function GroupRows({
           <td className="p-2">{toy.status}</td>
           <td className="p-2">{toy.condition}</td>
           <td className="p-2">
-            {CHECKOUT_ELIGIBLE_STATUSES.has(toy.status) && (
+            {CHECKOUT_ELIGIBLE_STATUSES.has(toy.status) ? (
               <Link
                 href={`/admin/checkouts?toy=${toy.id}`}
                 className="rounded bg-green-600 px-2 py-1 text-xs font-medium text-white hover:bg-green-700"
               >
                 Check out
               </Link>
+            ) : RETURN_ELIGIBLE_STATUSES.has(toy.status) ? (
+              <div className="flex items-center gap-1">
+                <select
+                  value={returning[toy.id]?.condition || "LIGHTLY_USED"}
+                  onChange={(e) => setReturning({ ...returning, [toy.id]: { condition: e.target.value } })}
+                  className="rounded border px-1 py-1 text-xs"
+                >
+                  <option value="NEW">New</option>
+                  <option value="LIGHTLY_USED">Lightly used</option>
+                  <option value="USED">Used</option>
+                  <option value="DAMAGED">Damaged</option>
+                </select>
+                <button
+                  onClick={() => onReturn(toy, returning[toy.id]?.condition || "LIGHTLY_USED")}
+                  className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+                >
+                  Return
+                </button>
+              </div>
+            ) : (
+              <button
+                disabled
+                className="cursor-not-allowed rounded bg-gray-300 px-2 py-1 text-xs font-medium text-gray-500"
+              >
+                Check out
+              </button>
             )}
           </td>
           <td className="p-2">
@@ -160,6 +190,28 @@ export default function AdminInventoryPage() {
       groupsInvalidateKeys(queryClient);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Transition not allowed");
+    }
+  };
+
+  const returnToy = async (toy: Toy, condition: string) => {
+    setError("");
+    try {
+      const status = toy.status === "OVERDUE" ? "OVERDUE" : "ACTIVE";
+      const checkouts = await apiFetch<Paginated<CheckoutRecord>>(
+        `/checkouts/?toy=${toy.id}&status=${status}`
+      );
+      const record = checkouts.results[0];
+      if (!record) throw new Error("No active checkout found for this toy");
+      await apiFetch(`/checkouts/${record.id}/return/`, {
+        method: "POST",
+        body: {
+          condition,
+          damaged_status: condition === "DAMAGED" ? "UNDER_REPAIR" : undefined,
+        },
+      });
+      groupsInvalidateKeys(queryClient);
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : "Could not return toy");
     }
   };
 
@@ -283,7 +335,12 @@ export default function AdminInventoryPage() {
                     <td className="p-2" />
                   </tr>
                   {isOpen && (
-                    <GroupRows make={g.make} model_name={g.model_name} onTransition={transition} />
+                    <GroupRows
+                      make={g.make}
+                      model_name={g.model_name}
+                      onTransition={transition}
+                      onReturn={returnToy}
+                    />
                   )}
                 </Fragment>
               );

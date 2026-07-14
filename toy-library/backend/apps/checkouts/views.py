@@ -29,7 +29,7 @@ class CheckoutViewSet(
 ):
     serializer_class = CheckoutRecordSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["status", "member"]
+    filterset_fields = ["status", "member", "toy"]
 
     def get_queryset(self):
         qs = CheckoutRecord.objects.all()

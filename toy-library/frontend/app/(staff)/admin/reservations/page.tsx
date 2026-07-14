@@ -8,6 +8,7 @@ import type { Paginated, Reservation } from "@/lib/types";
 export default function AdminReservationsPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
+  const [confirmingIds, setConfirmingIds] = useState<Set<string>>(new Set());
 
   const { data } = useQuery({
     queryKey: ["admin-reservations"],
@@ -15,12 +16,20 @@ export default function AdminReservationsPage() {
   });
 
   const confirmPickup = async (id: string) => {
+    if (confirmingIds.has(id)) return;
     setError("");
+    setConfirmingIds((prev) => new Set(prev).add(id));
     try {
       await apiFetch(`/reservations/${id}/confirm-pickup/`, { method: "POST" });
       queryClient.invalidateQueries({ queryKey: ["admin-reservations"] });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not confirm pickup");
+    } finally {
+      setConfirmingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -47,9 +56,10 @@ export default function AdminReservationsPage() {
                 <td className="p-2">
                   <button
                     onClick={() => confirmPickup(r.id)}
-                    className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+                    disabled={confirmingIds.has(r.id)}
+                    className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Confirm pickup
+                    {confirmingIds.has(r.id) ? "Confirming…" : "Confirm pickup"}
                   </button>
                 </td>
               </tr>
